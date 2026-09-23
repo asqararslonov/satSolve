@@ -1,7 +1,6 @@
 // SAT Solver Frontend Application
 let selectedFiles = [];
-let currentJobId = null;
-let pollInterval = null;
+let activeJob = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   initUI();
@@ -54,7 +53,7 @@ function initUI() {
     renderPreviewTray();
   });
 
-  startBtn.addEventListener("click", startPipeline);
+  startBtn.addEventListener("click", startClientPipeline);
 
   // Settings modal
   openSettingsBtn.addEventListener("click", () => {
@@ -71,16 +70,34 @@ function initUI() {
   });
 
   downloadQuestionsBtn.addEventListener("click", () => {
-    if (currentJobId) {
-      window.open(`/api/export/${currentJobId}/questions`, "_blank");
-    }
+    if (!activeJob) return;
+    let md = `# Exam Questions\n\nTotal Questions Transcribed: ${activeJob.total_images}\n\n---\n\n`;
+    activeJob.items.forEach((it) => {
+      md += `${it.markdown_question || `### Question ${it.index}\n(Transcription pending)`}\n\n---\n\n`;
+    });
+    downloadFile(md, "questions.md");
   });
 
   downloadSolutionsBtn.addEventListener("click", () => {
-    if (currentJobId) {
-      window.open(`/api/export/${currentJobId}/solutions`, "_blank");
-    }
+    if (!activeJob) return;
+    let md = `# Exam Solutions & Explanations\n\nModel: antigravity/claude-opus-4-6-thinking-high\n\n---\n\n`;
+    activeJob.items.forEach((it) => {
+      md += `## Question ${it.index}\n\n### Problem Stem\n${it.markdown_question}\n\n### Frontier AI Solution\n${it.solution || "(Pending)"}\n\n---\n\n`;
+    });
+    downloadFile(md, "solutions.md");
   });
+}
+
+function downloadFile(content, filename) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function handleFiles(files) {
@@ -93,7 +110,6 @@ function handleFiles(files) {
     return;
   }
 
-  // Merge and deduplicate by filename
   const existingNames = new Set(selectedFiles.map((f) => f.name));
   for (const f of imageFiles) {
     if (!existingNames.has(f.name)) {
@@ -101,7 +117,6 @@ function handleFiles(files) {
     }
   }
 
-  // Natural sort by name (e.g. 1.png, 2.png, 10.png)
   selectedFiles.sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
   );
@@ -219,83 +234,155 @@ async function saveConfig() {
   }
 }
 
-async function startPipeline() {
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Client-Driven Automated Pipeline (Vercel-proof & Serverless-safe)
+async function startClientPipeline() {
   if (selectedFiles.length === 0) return;
 
   const startBtn = document.getElementById("startPipelineBtn");
   startBtn.disabled = true;
 
-  const formData = new FormData();
-  selectedFiles.forEach((file) => {
-    formData.append("files", file);
-  });
-
   const visionPrompt = document.getElementById("settingVisionPrompt").value;
   const solverPrompt = document.getElementById("settingSolverPrompt").value;
-  if (visionPrompt) formData.append("vision_prompt", visionPrompt);
-  if (solverPrompt) formData.append("solver_prompt", solverPrompt);
+  const concurrency = parseInt(document.getElementById("settingConcurrency").value, 10) || 3;
 
   const progressSec = document.getElementById("progressSection");
   const resultsSec = document.getElementById("resultsSection");
   progressSec.classList.remove("hidden");
   resultsSec.classList.remove("hidden");
 
-  document.getElementById("progressTitle").textContent = "Processing Screenshots...";
-  document.getElementById("progressMessage").textContent = "Starting automated pipeline...";
+  activeJob = {
+    total_images: selectedFiles.length,
+    vision_completed: 0,
+    solver_completed: 0,
+    current_message: "Starting processing...",
+    items: selectedFiles.map((file, idx) => ({
+      index: idx + 1,
+      filename: file.name,
+      file: file,
+      image_url: URL.createObjectURL(file),
+      status: "pending",
+      markdown_question: "",
+      solution: "",
+      error: null,
+    })),
+  };
 
-  try {
-    const res = await fetch("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Upload failed");
+  updateProgressUI();
+  renderResults();
 
-    currentJobId = data.job_id;
-    startPolling(currentJobId);
-  } catch (err) {
-    alert("Pipeline start failed: " + err.message);
-    startBtn.disabled = false;
-  }
-}
+  // Async task pool
+  let queue = [...activeJob.items];
 
-function startPolling(jobId) {
-  if (pollInterval) clearInterval(pollInterval);
+  async function worker() {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
 
-  pollInterval = setInterval(async () => {
-    try {
-      const res = await fetch(`/api/jobs/${jobId}`);
-      if (!res.ok) return;
-      const job = await res.json();
+      try {
+        // Stage 1: Vision Transcription
+        item.status = "transcribing";
+        activeJob.current_message = `Transcribing Question ${item.index} with Vision...`;
+        updateProgressUI();
+        renderResults();
 
-      updateProgressUI(job);
-      renderResults(job);
+        const b64 = await fileToBase64(item.file);
+        const mimeType = item.file.type || "image/png";
 
-      if (job.status === "completed" || job.status === "failed") {
-        clearInterval(pollInterval);
-        document.getElementById("startPipelineBtn").disabled = false;
-        if (job.status === "completed") {
-          document.getElementById("progressTitle").textContent = "Pipeline Completed!";
-          document.getElementById("progressMessage").textContent =
-            `All ${job.total_images} questions transcribed & solved successfully.`;
+        const tRes = await fetch("/api/transcribe-direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            image_base64: b64,
+            image_mime_type: mimeType,
+            question_num: item.index,
+            vision_prompt: visionPrompt,
+          }),
+        });
+
+        if (!tRes.ok) {
+          const errData = await tRes.json().catch(() => ({}));
+          throw new Error(errData.detail || `Transcription failed (${tRes.status})`);
         }
+
+        const tData = await tRes.json();
+        item.markdown_question = tData.markdown_question;
+        item.status = "transcribed";
+        activeJob.vision_completed += 1;
+        updateProgressUI();
+        renderResults();
+
+        // Stage 2: Frontier Cloud Solver
+        item.status = "solving";
+        activeJob.current_message = `Solving Question ${item.index} with Claude Opus Thinking High...`;
+        updateProgressUI();
+        renderResults();
+
+        const sRes = await fetch("/api/solve-direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            markdown_question: item.markdown_question,
+            question_num: item.index,
+            solver_prompt: solverPrompt,
+          }),
+        });
+
+        if (!sRes.ok) {
+          const sErrData = await sRes.json().catch(() => ({}));
+          throw new Error(sErrData.detail || `Solving failed (${sRes.status})`);
+        }
+
+        const sData = await sRes.json();
+        item.solution = sData.solution;
+        item.status = "completed";
+        activeJob.solver_completed += 1;
+        updateProgressUI();
+        renderResults();
+
+      } catch (err) {
+        console.error(`Error on item ${item.index}:`, err);
+        item.status = "error";
+        item.error = err.message;
+        updateProgressUI();
+        renderResults();
       }
-    } catch (err) {
-      console.error("Polling error:", err);
     }
-  }, 1200);
+  }
+
+  // Launch parallel workers
+  const workerCount = Math.min(concurrency, selectedFiles.length);
+  const workers = Array.from({ length: workerCount }, () => worker());
+  await Promise.all(workers);
+
+  document.getElementById("progressTitle").textContent = "Pipeline Completed!";
+  document.getElementById("progressMessage").textContent =
+    `Successfully processed all ${activeJob.total_images} questions.`;
+  startBtn.disabled = false;
 }
 
-function updateProgressUI(job) {
-  const total = job.total_images || 1;
-  const vDone = job.vision_completed || 0;
-  const sDone = job.solver_completed || 0;
+function updateProgressUI() {
+  if (!activeJob) return;
+  const total = activeJob.total_images || 1;
+  const vDone = activeJob.vision_completed || 0;
+  const sDone = activeJob.solver_completed || 0;
 
-  // Overall percentage (Stage 1 is 50%, Stage 2 is 50%)
   const overallPercent = Math.round(((vDone + sDone) / (total * 2)) * 100);
 
   document.getElementById("progressPercent").textContent = `${overallPercent}%`;
-  document.getElementById("progressMessage").textContent = job.current_message;
+  document.getElementById("progressMessage").textContent = activeJob.current_message;
 
   const vPercent = Math.round((vDone / total) * 100);
   document.getElementById("visionProgressBar").style.width = `${vPercent}%`;
@@ -306,14 +393,15 @@ function updateProgressUI(job) {
   document.getElementById("solverProgressCount").textContent = `${sDone} / ${total}`;
 }
 
-function renderResults(job) {
+function renderResults() {
+  if (!activeJob) return;
   const container = document.getElementById("questionsContainer");
   const countBadge = document.getElementById("resultsCountBadge");
-  countBadge.textContent = `${job.items.length} Questions`;
+  countBadge.textContent = `${activeJob.items.length} Questions`;
 
   container.innerHTML = "";
 
-  job.items.forEach((item) => {
+  activeJob.items.forEach((item) => {
     const card = document.createElement("div");
     card.className =
       "bg-slate-900/70 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4";
@@ -329,15 +417,16 @@ function renderResults(job) {
 
     const statusBadge = `<span class="text-xs px-2.5 py-0.5 rounded-full border ${statusColors[item.status] || statusColors.pending}">${item.status.toUpperCase()}</span>`;
 
-    // Markdown parse
     const questionHtml = item.markdown_question
       ? marked.parse(item.markdown_question)
-      : '<p class="text-slate-500 italic">Waiting for vision transcription...</p>';
+      : item.status === "transcribing"
+      ? '<p class="text-indigo-400 italic">Transcribing screenshot with Vision model...</p>'
+      : '<p class="text-slate-500 italic">Waiting for transcription...</p>';
 
     const solutionHtml = item.solution
       ? marked.parse(item.solution)
       : item.status === "solving"
-      ? '<p class="text-amber-400 italic">Frontier model is solving step-by-step...</p>'
+      ? '<p class="text-amber-400 italic">Claude Opus Thinking High is deriving step-by-step solution...</p>'
       : '<p class="text-slate-500 italic">Solution will appear after transcription.</p>';
 
     card.innerHTML = `
@@ -358,7 +447,7 @@ function renderResults(job) {
           </div>
         </div>
 
-        <!-- Col 2: Markdown Question & Visual Description -->
+        <!-- Col 2: Markdown Question -->
         <div class="lg:col-span-4 bg-slate-950/80 rounded-xl border border-slate-800/80 p-4 flex flex-col">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Transcribed Question (MD)</span>
@@ -385,7 +474,6 @@ function renderResults(job) {
     container.appendChild(card);
   });
 
-  // Render LaTeX math formulas across all injected markdown nodes
   if (window.renderMathInElement) {
     renderMathInElement(container, {
       delimiters: [

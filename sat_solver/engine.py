@@ -53,9 +53,11 @@ def encode_image(image_path: str | Path) -> tuple[str, str]:
 
 
 async def call_vision_api(
-    image_path: str | Path,
-    question_num: int,
+    image_path: Optional[str | Path] = None,
+    question_num: int = 1,
     custom_prompt: Optional[str] = None,
+    image_base64: Optional[str] = None,
+    image_mime_type: Optional[str] = None,
 ) -> str:
     """Call multimodal model via Omni Route, OpenRouter, or Anthropic to transcribe screenshot to Markdown."""
     provider = config.ai_provider.lower()
@@ -84,7 +86,13 @@ async def call_vision_api(
             f"- **D)** $-2$\n"
         )
 
-    b64_data, mime_type = encode_image(image_path)
+    if image_base64:
+        b64_data = image_base64
+        mime_type = image_mime_type or "image/png"
+    elif image_path:
+        b64_data, mime_type = encode_image(image_path)
+    else:
+        raise ValueError("Either image_path or image_base64 must be provided")
 
     async with httpx.AsyncClient(timeout=180.0, verify=False) as client:
         if provider == "anthropic":

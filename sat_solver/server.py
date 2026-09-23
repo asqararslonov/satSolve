@@ -99,6 +99,48 @@ async def get_prompts():
     }
 
 
+class DirectTranscribeRequest(BaseModel):
+    image_base64: str
+    image_mime_type: Optional[str] = "image/png"
+    question_num: int = 1
+    vision_prompt: Optional[str] = None
+
+
+class DirectSolveRequest(BaseModel):
+    markdown_question: str
+    question_num: int = 1
+    solver_prompt: Optional[str] = None
+
+
+@api.post("/transcribe-direct")
+async def transcribe_direct(req: DirectTranscribeRequest):
+    """Stateless transcribe of a single image via base64, fully serverless safe."""
+    try:
+        md = await call_vision_api(
+            question_num=req.question_num,
+            custom_prompt=req.vision_prompt,
+            image_base64=req.image_base64,
+            image_mime_type=req.image_mime_type,
+        )
+        return {"status": "success", "markdown_question": md}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api.post("/solve-direct")
+async def solve_direct(req: DirectSolveRequest):
+    """Stateless solve of a single question, fully serverless safe."""
+    try:
+        sol = await call_solver_api(
+            markdown_question=req.markdown_question,
+            question_num=req.question_num,
+            custom_prompt=req.solver_prompt,
+        )
+        return {"status": "success", "solution": sol}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @api.post("/upload")
 async def upload_batch(
     files: List[UploadFile] = File(...),
