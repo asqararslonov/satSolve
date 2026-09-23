@@ -14,6 +14,7 @@ from sat_solver.config import config, BASE_DIR, UPLOAD_DIR, OUTPUT_DIR
 from sat_solver.prompts import (
     DEFAULT_VISION_SYSTEM_PROMPT,
     DEFAULT_SOLVER_SYSTEM_PROMPT,
+    DEFAULT_GROUPING_SYSTEM_PROMPT,
 )
 from sat_solver.engine import (
     JOBS,
@@ -22,6 +23,7 @@ from sat_solver.engine import (
     process_batch_job,
     call_vision_api,
     call_solver_api,
+    call_grouping_agent,
 )
 
 app = FastAPI(title="SAT & Exam AI Solver Platform", version="1.0.0")
@@ -94,14 +96,31 @@ async def update_config(req: ConfigUpdateRequest):
 @api.get("/prompts")
 async def get_prompts():
     return {
+        "grouping_system_prompt": DEFAULT_GROUPING_SYSTEM_PROMPT,
         "vision_system_prompt": DEFAULT_VISION_SYSTEM_PROMPT,
         "solver_system_prompt": DEFAULT_SOLVER_SYSTEM_PROMPT,
     }
 
 
+class GroupScreenshotsRequest(BaseModel):
+    images: List[dict]  # [{"index": int, "filename": str, "b64": str, "mime_type": str}]
+    grouping_prompt: Optional[str] = None
+
+
+@api.post("/group-screenshots")
+async def group_screenshots(req: GroupScreenshotsRequest):
+    """AI Agent that analyzes all screenshots together to group them into cohesive questions with correct numbering."""
+    try:
+        grouping = await call_grouping_agent(req.images, req.grouping_prompt)
+        return {"status": "success", "grouping": grouping}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class DirectTranscribeRequest(BaseModel):
-    image_base64: str
+    image_base64: Optional[str] = None
     image_mime_type: Optional[str] = "image/png"
+    images: Optional[List[dict]] = None  # [{"b64": str, "mime_type": str}]
     question_num: int = 1
     vision_prompt: Optional[str] = None
 
@@ -114,13 +133,14 @@ class DirectSolveRequest(BaseModel):
 
 @api.post("/transcribe-direct")
 async def transcribe_direct(req: DirectTranscribeRequest):
-    """Stateless transcribe of a single image via base64, fully serverless safe."""
+    """Stateless transcribe of one or more screenshots belonging to a question."""
     try:
         md = await call_vision_api(
             question_num=req.question_num,
             custom_prompt=req.vision_prompt,
             image_base64=req.image_base64,
             image_mime_type=req.image_mime_type,
+            images=req.images,
         )
         return {"status": "success", "markdown_question": md}
     except Exception as e:

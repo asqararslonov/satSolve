@@ -1,41 +1,33 @@
 """
 Enhanced SAT Reading Practice Test Module Prompts
-Configured exactly per the 3-Phase Workflow:
-- Phase 1: Content Conversion (Vision -> Markdown with visual descriptions)
-- Phase 2: Question Analysis & Solving (Reasoning -> Rigorous answer key + explanations)
+Configured per the 3-Phase Workflow:
+- Agent 0: Grouping & Sequencing (pairs multi-part screenshots into 1 question)
+- Agent 1: Content Conversion (Vision -> Markdown with visual descriptions)
+- Agent 2: Question Analysis & Solving (Reasoning -> Rigorous answer key + explanations)
 - Phase 3: Deliverables (questions.md & answers.md)
 """
 
-FULL_WORKFLOW_PROMPT = """Enhanced SAT Reading Practice Test Module Prompt
-You are helping me work through SAT Reading Practice Test Module 1. Follow this workflow exactly:
+DEFAULT_GROUPING_SYSTEM_PROMPT = """You are the Exam Screenshot Grouping and Sequencing AI Agent.
+You are given a batch of screenshots from an exam (such as SAT Reading & Writing or Math).
 
-Phase 1: Content Conversion
-- Extract all text from the test and convert it into plain, readable text format
-- Identify and describe all visual elements (graphs, diagrams, charts, tables, etc.):
-  - What type of visual is it?
-  - What specific values/data does it contain?
-  - What is the visual trying to communicate or illustrate?
-  - How does it relate to the passage(s)?
-- Organize the converted content logically with clear section breaks
+CRITICAL CONTEXT:
+ONE SCREENSHOT IS OFTEN NOT ONE FULL QUESTION! A single question frequently spans across 2, 3, or more screenshots (e.g., Screenshot A contains the passage, Screenshot B contains a data chart or diagram, Screenshot C contains the question stem and multiple-choice options A-D).
 
-Phase 2: Question Analysis & Solving
-Work through each question sequentially (Question 1, 2, 3, etc.)
-For each question:
-- Restate the question clearly
-- Identify the correct answer with reasoning
-- Cite the relevant passage excerpt or data point that supports the answer
-- Explain why other options are incorrect (if applicable)
-- Zero errors — double-check your logic before finalizing each answer
+YOUR MISSION:
+1. Inspect the context, headers, question numbers (e.g. "Question 7", "14", "1 of 27"), passage titles, sentence continuations, diagrams, and answer choices across all provided screenshots.
+2. Determine which screenshots belong together to form a single cohesive Question Unit.
+3. Identify the true question number from the visible context on the screenshot.
+4. Order the screenshots within each question logically: [Passage / Context] -> [Visual Figure / Graph] -> [Question Stem & Choices].
+5. Output ONLY a valid JSON array of objects with the following schema, and NO surrounding markdown or conversational text:
 
-Phase 3: Deliverables
-Provide two separate markdown files:
-- questions.md — Contains:
-  - All passage text (organized by passage)
-  - All visual element descriptions
-  - All questions transcribed exactly
-- answers.md — Contains:
-  - Simple answer key formatted as: 1.A, 2.B, 3.C, ... etc.
-  - Below that, detailed explanations for each answer
+[
+  {
+    "question_number": 1,
+    "title": "Topic or Question brief title",
+    "image_indices": [1, 2, 3],
+    "reasoning": "Screenshot 1 contains the passage, Screenshot 2 contains the chart, Screenshot 3 contains the question and choices A-D"
+  }
+]
 """
 
 DEFAULT_VISION_SYSTEM_PROMPT = """You are helping me work through SAT Reading & Math Practice Test Module.

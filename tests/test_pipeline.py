@@ -103,44 +103,76 @@ async def test_batch_processing_pipeline(dummy_image):
 
 
 def test_fastapi_endpoints():
-    client = TestClient(app)
+    old_key = config.omni_route_api_key
+    try:
+        config.omni_route_api_key = ""
+        config.openrouter_api_key = ""
+        config.anthropic_api_key = ""
+        client = TestClient(app)
 
-    # Test GET /api/config
-    res = client.get("/api/config")
-    assert res.status_code == 200
-    data = res.json()
-    assert "ai_provider" in data
-    assert "vision_model" in data
+        # Test GET /api/config
+        res = client.get("/api/config")
+        assert res.status_code == 200
+        data = res.json()
+        assert "ai_provider" in data
+        assert "vision_model" in data
 
-    # Test POST /api/config
-    res = client.post(
-        "/api/config",
-        json={"vision_model": "anthropic/claude-3.7-sonnet", "max_concurrency": 5},
-    )
-    assert res.status_code == 200
-    assert res.json()["config"]["max_concurrency"] == 5
+        # Test POST /api/config
+        res = client.post(
+            "/api/config",
+            json={"vision_model": "anthropic/claude-3.7-sonnet", "max_concurrency": 5},
+        )
+        assert res.status_code == 200
+        assert res.json()["config"]["max_concurrency"] == 5
 
-    # Test GET /api/prompts
-    res = client.get("/api/prompts")
-    assert res.status_code == 200
-    assert "Visual Description" in res.json()["vision_system_prompt"]
+        # Test GET /api/prompts
+        res = client.get("/api/prompts")
+        assert res.status_code == 200
+        assert "Visual Description" in res.json()["vision_system_prompt"]
 
-    # Test POST /api/upload
-    fake_png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
-        b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-    files = [
-        ("files", ("q1.png", io.BytesIO(fake_png), "image/png")),
-        ("files", ("q2.png", io.BytesIO(fake_png), "image/png")),
-    ]
-    upload_res = client.post("/api/upload", files=files)
-    assert upload_res.status_code == 200
-    upload_data = upload_res.json()
-    assert "job_id" in upload_data
-    assert upload_data["total_files"] == 2
+        # Test POST /api/upload
+        fake_png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        files = [
+            ("files", ("q1.png", io.BytesIO(fake_png), "image/png")),
+            ("files", ("q2.png", io.BytesIO(fake_png), "image/png")),
+        ]
+        upload_res = client.post("/api/upload", files=files)
+        assert upload_res.status_code == 200
+        upload_data = upload_res.json()
+        assert "job_id" in upload_data
 
-    job_id = upload_data["job_id"]
-    job_res = client.get(f"/api/jobs/{job_id}")
-    assert job_res.status_code == 200
-    assert job_res.json()["total_images"] == 2
+        # Test POST /api/group-screenshots
+        sample_images = [
+            {"index": 1, "filename": "passage1.png", "b64": "fakeb64", "mime_type": "image/png"},
+            {"index": 2, "filename": "q1.png", "b64": "fakeb64", "mime_type": "image/png"},
+        ]
+        group_res = client.post("/api/group-screenshots", json={"images": sample_images})
+        assert group_res.status_code == 200
+        g_data = group_res.json()
+        assert "grouping" in g_data
+        assert len(g_data["grouping"]) > 0
+
+        # Test POST /api/transcribe-direct with multi-image payload
+        trans_res = client.post(
+            "/api/transcribe-direct",
+            json={
+                "images": [
+                    {"b64": "fakeb64", "mime_type": "image/png"},
+                    {"b64": "fakeb64_2", "mime_type": "image/png"},
+                ],
+                "question_num": 1,
+            },
+        )
+        assert trans_res.status_code == 200
+        assert "markdown_question" in trans_res.json()
+        assert upload_data["total_files"] == 2
+
+        job_id = upload_data["job_id"]
+        job_res = client.get(f"/api/jobs/{job_id}")
+        assert job_res.status_code == 200
+        assert job_res.json()["total_images"] == 2
+    finally:
+        config.omni_route_api_key = old_key

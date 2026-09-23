@@ -1,4 +1,4 @@
-// SAT Solver Frontend Application
+// SAT Solver Frontend Application with Screenshot Grouping Agent
 let selectedFiles = [];
 let activeJob = null;
 
@@ -71,9 +71,9 @@ function initUI() {
 
   downloadQuestionsBtn.addEventListener("click", () => {
     if (!activeJob) return;
-    let md = `# Exam Questions\n\nTotal Questions Transcribed: ${activeJob.total_images}\n\n---\n\n`;
+    let md = `# SAT Exam Questions\n\nTotal Questions: ${activeJob.items.length}\n\n---\n\n`;
     activeJob.items.forEach((it) => {
-      md += `${it.markdown_question || `### Question ${it.index}\n(Transcription pending)`}\n\n---\n\n`;
+      md += `${it.markdown_question || `### Question ${it.question_number}\n(Transcription pending)`}\n\n---\n\n`;
     });
     downloadFile(md, "questions.md");
   });
@@ -81,7 +81,7 @@ function initUI() {
   downloadSolutionsBtn.addEventListener("click", () => {
     if (!activeJob) return;
 
-    // Build Simple Answer Key: 1.A, 2.B, 3.C, ...
+    // Simple Answer Key: 1.A, 2.B, 3.C, ...
     const keyParts = [];
     activeJob.items.forEach((it) => {
       let ans = "?";
@@ -89,7 +89,7 @@ function initUI() {
         const match = it.solution.match(/Final Answer:?\s*\(?([A-D0-9.\-\/]+)\)?/i);
         if (match) ans = match[1].toUpperCase();
       }
-      keyParts.push(`${it.index}.${ans}`);
+      keyParts.push(`${it.question_number}.${ans}`);
     });
     const simpleKey = keyParts.join(", ");
 
@@ -97,7 +97,7 @@ function initUI() {
     md += `## Simple Answer Key\n${simpleKey}\n\n---\n\n`;
     md += `## Detailed Explanations\n\n`;
     activeJob.items.forEach((it) => {
-      md += `### Question ${it.index}\n\n`;
+      md += `### Question ${it.question_number}\n\n`;
       md += `#### Problem Stem & Visuals\n${it.markdown_question || "(Pending)"}\n\n`;
       md += `#### Explanation & Analysis\n${it.solution || "(Pending)"}\n\n---\n\n`;
     });
@@ -212,6 +212,9 @@ async function loadPrompts() {
   try {
     const res = await fetch("/api/prompts");
     const data = await res.json();
+    if (document.getElementById("settingGroupingPrompt")) {
+      document.getElementById("settingGroupingPrompt").value = data.grouping_system_prompt || "";
+    }
     document.getElementById("settingVisionPrompt").value = data.vision_system_prompt || "";
     document.getElementById("settingSolverPrompt").value = data.solver_system_prompt || "";
   } catch (err) {
@@ -264,13 +267,14 @@ function fileToBase64(file) {
   });
 }
 
-// Client-Driven Automated Pipeline (Vercel-proof & Serverless-safe)
+// 3-Stage Pipeline: Agent 0 (Grouping) -> Agent 1 (Multi-Image Vision) -> Agent 2 (Opus High Solver)
 async function startClientPipeline() {
   if (selectedFiles.length === 0) return;
 
   const startBtn = document.getElementById("startPipelineBtn");
   startBtn.disabled = true;
 
+  const groupingPrompt = document.getElementById("settingGroupingPrompt")?.value;
   const visionPrompt = document.getElementById("settingVisionPrompt").value;
   const solverPrompt = document.getElementById("settingSolverPrompt").value;
   const concurrency = parseInt(document.getElementById("settingConcurrency").value, 10) || 3;
@@ -280,16 +284,89 @@ async function startClientPipeline() {
   progressSec.classList.remove("hidden");
   resultsSec.classList.remove("hidden");
 
+  // Encode all images
+  document.getElementById("progressTitle").textContent = "Preparing Screenshots...";
+  document.getElementById("progressMessage").textContent = `Encoding ${selectedFiles.length} screenshots for analysis...`;
+
+  const encodedImages = [];
+  for (let i = 0; i < selectedFiles.length; i++) {
+    const file = selectedFiles[i];
+    const b64 = await fileToBase64(file);
+    encodedImages.push({
+      index: i + 1,
+      filename: file.name,
+      b64: b64,
+      mime_type: file.type || "image/png",
+      url: URL.createObjectURL(file),
+      file: file,
+    });
+  }
+
+  const imageMap = {};
+  encodedImages.forEach((img) => {
+    imageMap[img.index] = img;
+  });
+
+  // ==========================================
+  // STAGE 0: Agent 0 (Question Grouping & Sequencing)
+  // ==========================================
+  document.getElementById("progressTitle").textContent = "Agent 0: Analyzing & Grouping Screenshots...";
+  document.getElementById("progressMessage").textContent =
+    "Detecting question numbers and pairing multi-screenshot questions (passages, diagrams, options)...";
+  document.getElementById("groupingProgressCount").textContent = "Analyzing...";
+  document.getElementById("groupingProgressBar").style.width = "40%";
+
+  let groupingResult = [];
+  try {
+    const groupRes = await fetch("/api/group-screenshots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        images: encodedImages.map((im) => ({
+          index: im.index,
+          filename: im.filename,
+          b64: im.b64,
+          mime_type: im.mime_type,
+        })),
+        grouping_prompt: groupingPrompt,
+      }),
+    });
+
+    if (groupRes.ok) {
+      const gData = await groupRes.json();
+      groupingResult = gData.grouping || [];
+    }
+  } catch (err) {
+    console.warn("Grouping agent error, falling back to 1-to-1:", err);
+  }
+
+  // Fallback if empty
+  if (!groupingResult || groupingResult.length === 0) {
+    groupingResult = encodedImages.map((im) => ({
+      question_number: im.index,
+      title: `Question ${im.index}`,
+      image_indices: [im.index],
+      reasoning: "Single screenshot unit",
+    }));
+  }
+
+  document.getElementById("groupingProgressCount").textContent = `${groupingResult.length} Questions Identified`;
+  document.getElementById("groupingProgressBar").style.width = "100%";
+
+  // Create Question Units
   activeJob = {
-    total_images: selectedFiles.length,
+    total_questions: groupingResult.length,
     vision_completed: 0,
     solver_completed: 0,
-    current_message: "Starting processing...",
-    items: selectedFiles.map((file, idx) => ({
+    current_message: `Identified ${groupingResult.length} questions from ${selectedFiles.length} screenshots. Starting transcription...`,
+    items: groupingResult.map((g, idx) => ({
       index: idx + 1,
-      filename: file.name,
-      file: file,
-      image_url: URL.createObjectURL(file),
+      question_number: g.question_number || idx + 1,
+      title: g.title || `Question ${g.question_number || idx + 1}`,
+      reasoning: g.reasoning || "",
+      images: (g.image_indices || [idx + 1])
+        .map((imgIdx) => imageMap[imgIdx])
+        .filter(Boolean),
       status: "pending",
       markdown_question: "",
       solution: "",
@@ -300,7 +377,9 @@ async function startClientPipeline() {
   updateProgressUI();
   renderResults();
 
-  // Async task pool
+  // ==========================================
+  // STAGE 1 & 2: Multi-Image Vision & Frontier Cloud Solver
+  // ==========================================
   let queue = [...activeJob.items];
 
   async function worker() {
@@ -309,22 +388,23 @@ async function startClientPipeline() {
       if (!item) break;
 
       try {
-        // Stage 1: Vision Transcription
+        // Stage 1: Multi-Image Vision Transcription
         item.status = "transcribing";
-        activeJob.current_message = `Transcribing Question ${item.index} with Vision...`;
+        activeJob.current_message = `Transcribing Question ${item.question_number} (${item.images.length} screenshot${item.images.length > 1 ? "s" : ""})...`;
         updateProgressUI();
         renderResults();
 
-        const b64 = await fileToBase64(item.file);
-        const mimeType = item.file.type || "image/png";
+        const imagesPayload = item.images.map((im) => ({
+          b64: im.b64,
+          mime_type: im.mime_type,
+        }));
 
         const tRes = await fetch("/api/transcribe-direct", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            image_base64: b64,
-            image_mime_type: mimeType,
-            question_num: item.index,
+            images: imagesPayload,
+            question_num: item.question_number,
             vision_prompt: visionPrompt,
           }),
         });
@@ -343,7 +423,7 @@ async function startClientPipeline() {
 
         // Stage 2: Frontier Cloud Solver
         item.status = "solving";
-        activeJob.current_message = `Solving Question ${item.index} with Claude Opus Thinking High...`;
+        activeJob.current_message = `Solving Question ${item.question_number} with Claude Opus Thinking High...`;
         updateProgressUI();
         renderResults();
 
@@ -352,7 +432,7 @@ async function startClientPipeline() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             markdown_question: item.markdown_question,
-            question_num: item.index,
+            question_num: item.question_number,
             solver_prompt: solverPrompt,
           }),
         });
@@ -370,7 +450,7 @@ async function startClientPipeline() {
         renderResults();
 
       } catch (err) {
-        console.error(`Error on item ${item.index}:`, err);
+        console.error(`Error on Question ${item.question_number}:`, err);
         item.status = "error";
         item.error = err.message;
         updateProgressUI();
@@ -379,20 +459,19 @@ async function startClientPipeline() {
     }
   }
 
-  // Launch parallel workers
-  const workerCount = Math.min(concurrency, selectedFiles.length);
+  const workerCount = Math.min(concurrency, activeJob.items.length);
   const workers = Array.from({ length: workerCount }, () => worker());
   await Promise.all(workers);
 
   document.getElementById("progressTitle").textContent = "Pipeline Completed!";
   document.getElementById("progressMessage").textContent =
-    `Successfully processed all ${activeJob.total_images} questions.`;
+    `Successfully grouped, transcribed, and solved all ${activeJob.total_questions} questions!`;
   startBtn.disabled = false;
 }
 
 function updateProgressUI() {
   if (!activeJob) return;
-  const total = activeJob.total_images || 1;
+  const total = activeJob.total_questions || 1;
   const vDone = activeJob.vision_completed || 0;
   const sDone = activeJob.solver_completed || 0;
 
@@ -414,7 +493,7 @@ function renderResults() {
   if (!activeJob) return;
   const container = document.getElementById("questionsContainer");
   const countBadge = document.getElementById("resultsCountBadge");
-  countBadge.textContent = `${activeJob.items.length} Questions`;
+  countBadge.textContent = `${activeJob.items.length} Questions (${selectedFiles.length} Screenshots)`;
 
   container.innerHTML = "";
 
@@ -434,33 +513,52 @@ function renderResults() {
 
     const statusBadge = `<span class="text-xs px-2.5 py-0.5 rounded-full border ${statusColors[item.status] || statusColors.pending}">${item.status.toUpperCase()}</span>`;
 
+    // Render screenshots gallery for this question
+    let screenshotsHtml = "";
+    item.images.forEach((img, i) => {
+      screenshotsHtml += `
+        <div class="relative group bg-slate-900 border border-slate-800 rounded-lg overflow-hidden flex flex-col items-center">
+          <img src="${img.url}" class="h-28 w-full object-contain cursor-zoom-in p-1" onclick="window.open('${img.url}', '_blank')" />
+          <div class="w-full bg-slate-950/80 px-2 py-0.5 text-[10px] text-slate-400 truncate text-center border-t border-slate-800">
+            Part ${i + 1}: ${img.filename}
+          </div>
+        </div>
+      `;
+    });
+
     const questionHtml = item.markdown_question
       ? marked.parse(item.markdown_question)
       : item.status === "transcribing"
-      ? '<p class="text-indigo-400 italic">Transcribing screenshot with Vision model...</p>'
+      ? '<p class="text-indigo-400 italic">Agent 1: Synthesizing and transcribing screenshots...</p>'
       : '<p class="text-slate-500 italic">Waiting for transcription...</p>';
 
     const solutionHtml = item.solution
       ? marked.parse(item.solution)
       : item.status === "solving"
-      ? '<p class="text-amber-400 italic">Claude Opus Thinking High is deriving step-by-step solution...</p>'
+      ? '<p class="text-amber-400 italic">Agent 2: Claude Opus Thinking High is solving...</p>'
       : '<p class="text-slate-500 italic">Solution will appear after transcription.</p>';
 
     card.innerHTML = `
       <div class="flex items-center justify-between border-b border-slate-800/80 pb-3">
         <div class="flex items-center gap-3">
-          <span class="font-bold text-base text-white">#${item.index}</span>
-          <span class="text-xs text-slate-400 font-mono">${item.filename}</span>
+          <span class="font-bold text-base text-white">Question ${item.question_number}</span>
+          <span class="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">
+            ${item.images.length} screenshot${item.images.length > 1 ? "s" : ""} paired
+          </span>
+          ${item.reasoning ? `<span class="text-xs text-slate-400 italic hidden md:inline">(${item.reasoning})</span>` : ""}
         </div>
         <div>${statusBadge}</div>
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <!-- Col 1: Screenshot -->
+        <!-- Col 1: Grouped Screenshots Gallery -->
         <div class="lg:col-span-4 bg-slate-950/80 rounded-xl border border-slate-800/80 p-3 flex flex-col">
-          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Original Screenshot</span>
-          <div class="flex-1 rounded-lg overflow-hidden bg-slate-900 border border-slate-800 flex items-center justify-center min-h-[220px]">
-            <img src="${item.image_url}" class="max-h-72 w-auto object-contain cursor-zoom-in" onclick="window.open('${item.image_url}', '_blank')" />
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Paired Screenshots (${item.images.length})</span>
+            <span class="text-[10px] text-slate-500">Click to zoom</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 overflow-y-auto max-h-96 pr-1">
+            ${screenshotsHtml}
           </div>
         </div>
 
@@ -468,9 +566,9 @@ function renderResults() {
         <div class="lg:col-span-4 bg-slate-950/80 rounded-xl border border-slate-800/80 p-4 flex flex-col">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">Transcribed Question (MD)</span>
-            <button class="text-[11px] text-slate-400 hover:text-slate-200" onclick="copyText(${item.index}, 'q')">Copy</button>
+            <button class="text-[11px] text-slate-400 hover:text-slate-200" onclick="copyText(${item.question_number}, 'q')">Copy</button>
           </div>
-          <div id="q-content-${item.index}" class="markdown-body flex-1 overflow-y-auto max-h-96 pr-2">
+          <div id="q-content-${item.question_number}" class="markdown-body flex-1 overflow-y-auto max-h-96 pr-2">
             ${questionHtml}
           </div>
         </div>
@@ -479,9 +577,9 @@ function renderResults() {
         <div class="lg:col-span-4 bg-slate-950/80 rounded-xl border border-slate-800/80 p-4 flex flex-col">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Frontier AI Solution</span>
-            <button class="text-[11px] text-slate-400 hover:text-slate-200" onclick="copyText(${item.index}, 's')">Copy</button>
+            <button class="text-[11px] text-slate-400 hover:text-slate-200" onclick="copyText(${item.question_number}, 's')">Copy</button>
           </div>
-          <div id="s-content-${item.index}" class="markdown-body flex-1 overflow-y-auto max-h-96 pr-2">
+          <div id="s-content-${item.question_number}" class="markdown-body flex-1 overflow-y-auto max-h-96 pr-2">
             ${solutionHtml}
           </div>
         </div>

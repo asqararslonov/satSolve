@@ -10,9 +10,8 @@ from sat_solver.config import config, OUTPUT_DIR
 from sat_solver.prompts import (
     DEFAULT_VISION_SYSTEM_PROMPT,
     DEFAULT_SOLVER_SYSTEM_PROMPT,
+    DEFAULT_GROUPING_SYSTEM_PROMPT,
 )
-
-
 class QuestionItem(BaseModel):
     index: int
     filename: str
@@ -52,14 +51,129 @@ def encode_image(image_path: str | Path) -> tuple[str, str]:
     return encoded, mime_type
 
 
+async def call_grouping_agent(
+    images_data: List[dict],  # [{"index": 1, "filename": "...", "b64": "...", "mime_type": "..."}]
+    custom_prompt: Optional[str] = None,
+) -> List[dict]:
+    """AI Agent that analyzes all screenshots together to determine which belong to the same question and identify the correct question number."""
+    provider = config.ai_provider.lower()
+    api_key = config.get_api_key(provider)
+    system_prompt = custom_prompt or DEFAULT_GROUPING_SYSTEM_PROMPT
+    model = config.vision_model
+
+    fallback = [
+        {
+            "question_number": img["index"],
+            "title": f"Question {img['index']}",
+            "image_indices": [img["index"]],
+            "reasoning": "Sequential default mapping",
+        }
+        for img in images_data
+    ]
+
+    if not api_key:
+        return fallback
+
+    user_content = []
+    overview_text = f"You are analyzing {len(images_data)} total screenshots from this exam module.\n"
+    for img in images_data:
+        overview_text += f"- Screenshot #{img['index']}: {img['filename']}\n"
+    overview_text += (
+        "\nExamine the visual contents, question numbers, passage continuations, and choices of all images below. "
+        "Return a strictly valid JSON array grouping them into question units with true question numbers."
+    )
+
+    if provider == "anthropic":
+        for img in images_data:
+            user_content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.get("mime_type", "image/png"),
+                        "data": img["b64"],
+                    },
+                }
+            )
+            user_content.append(
+                {"type": "text", "text": f"[Above is Screenshot #{img['index']} ({img['filename']})]"}
+            )
+        user_content.append({"type": "text", "text": overview_text})
+
+        payload = {
+            "model": model,
+            "max_tokens": 4096,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_content}],
+        }
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+    else:
+        # Omni Route / OpenRouter
+        url = config.omni_route_url if provider == "omniroute" else "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        for img in images_data:
+            user_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{img.get('mime_type', 'image/png')};base64,{img['b64']}"
+                    },
+                }
+            )
+            user_content.append(
+                {"type": "text", "text": f"[Above is Screenshot #{img['index']} ({img['filename']})]"}
+            )
+        user_content.append({"type": "text", "text": overview_text})
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0, verify=False) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            res_json = resp.json()
+
+            if provider == "anthropic":
+                raw_text = res_json["content"][0]["text"].strip()
+            else:
+                raw_text = res_json["choices"][0]["message"]["content"].strip()
+
+            # Clean json fences
+            raw_text = re.sub(r"^```(?:json)?", "", raw_text, flags=re.MULTILINE)
+            raw_text = re.sub(r"```$", "", raw_text, flags=re.MULTILINE).strip()
+
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                return parsed
+    except Exception as e:
+        print(f"Grouping agent error, falling back: {e}")
+
+    return fallback
+
+
 async def call_vision_api(
     image_path: Optional[str | Path] = None,
     question_num: int = 1,
     custom_prompt: Optional[str] = None,
     image_base64: Optional[str] = None,
     image_mime_type: Optional[str] = None,
+    images: Optional[List[dict]] = None,  # list of {"b64": str, "mime_type": str}
 ) -> str:
-    """Call multimodal model via Omni Route, OpenRouter, or Anthropic to transcribe screenshot to Markdown."""
+    """Call multimodal model via Omni Route, OpenRouter, or Anthropic to transcribe one or more screenshots belonging to a question."""
     provider = config.ai_provider.lower()
     api_key = config.get_api_key(provider)
     system_prompt = custom_prompt or DEFAULT_VISION_SYSTEM_PROMPT
@@ -86,15 +200,27 @@ async def call_vision_api(
             f"- **D)** $-2$\n"
         )
 
-    if image_base64:
-        b64_data = image_base64
-        mime_type = image_mime_type or "image/png"
+    # Prepare image list
+    image_items = []
+    if images and len(images) > 0:
+        for im in images:
+            image_items.append((im["b64"], im.get("mime_type", "image/png")))
+    elif image_base64:
+        image_items.append((image_base64, image_mime_type or "image/png"))
     elif image_path:
-        b64_data, mime_type = encode_image(image_path)
+        b64, mime = encode_image(image_path)
+        image_items.append((b64, mime))
     else:
-        raise ValueError("Either image_path or image_base64 must be provided")
+        raise ValueError("No image data provided to call_vision_api")
 
     async with httpx.AsyncClient(timeout=180.0, verify=False) as client:
+        instruction_text = (
+            f"Transcribe these screenshots for Question {question_num}. "
+            "If multiple screenshots are provided (e.g. passage part, graph/visual, and question stem/choices), "
+            "synthesize them into one complete, seamless Question Unit. "
+            "Follow all instructions and format with LaTeX math and detailed visual descriptions under #### Visual Description."
+        )
+
         if provider == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
             headers = {
@@ -102,29 +228,25 @@ async def call_vision_api(
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             }
+            msg_content = []
+            for b64, mime in image_items:
+                msg_content.append(
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime,
+                            "data": b64,
+                        },
+                    }
+                )
+            msg_content.append({"type": "text", "text": instruction_text})
+
             payload = {
                 "model": model,
-                "max_tokens": 3000,
+                "max_tokens": 4000,
                 "system": system_prompt,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": mime_type,
-                                    "data": b64_data,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": f"Transcribe this screenshot for Question {question_num}. Follow all instructions and format with LaTeX math and detailed visual description.",
-                            },
-                        ],
-                    }
-                ],
+                "messages": [{"role": "user", "content": msg_content}],
             }
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
@@ -133,34 +255,26 @@ async def call_vision_api(
 
         else:
             # Omni Route or OpenRouter
-            if provider == "omniroute":
-                url = config.omni_route_url
-            else:
-                url = "https://openrouter.ai/api/v1/chat/completions"
-
+            url = config.omni_route_url if provider == "omniroute" else "https://openrouter.ai/api/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
+            msg_content = []
+            for b64, mime in image_items:
+                msg_content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    }
+                )
+            msg_content.append({"type": "text", "text": instruction_text})
+
             payload = {
                 "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": f"Transcribe this screenshot for Question {question_num}. Follow all instructions and format with LaTeX math and detailed visual description.",
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:{mime_type};base64,{b64_data}"
-                                },
-                            },
-                        ],
-                    },
+                    {"role": "user", "content": msg_content},
                 ],
             }
             resp = await client.post(url, headers=headers, json=payload)
