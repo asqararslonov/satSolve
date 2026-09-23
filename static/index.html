@@ -43,7 +43,7 @@
       <div class="flex items-center space-x-3">
         <div id="providerBadge" class="hidden sm:flex items-center gap-1.5 text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-lg border border-slate-700">
           <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span id="providerText">Provider: OpenRouter</span>
+          <span id="providerText">Provider: Omni Route (Active)</span>
         </div>
         <button id="openSettingsBtn" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3.5 py-1.5 rounded-lg transition">
           <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -194,18 +194,29 @@
         <div>
           <label class="block text-xs font-semibold text-slate-300 mb-1">AI Provider</label>
           <select id="settingProvider" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200">
-            <option value="openrouter">OpenRouter (Omni-route / All Frontier Models)</option>
+            <option value="omniroute">Omni Route (Preconfigured / Cloud Reasoning)</option>
+            <option value="openrouter">OpenRouter</option>
             <option value="anthropic">Anthropic Direct Cloud</option>
           </select>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">OpenRouter API Key</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Omni Route Endpoint URL</label>
+          <input type="text" id="settingOmniRouteUrl" value="https://34.59.24.49.nip.io:20130/v1/chat/completions" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono text-xs" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Omni Route API Key</label>
+          <input type="password" id="settingOmniRouteKey" value="sk-e1c9718b5e58a095-53cb5c-fab29a1c" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">OpenRouter API Key (Optional)</label>
           <input type="password" id="settingOpenrouterKey" placeholder="sk-or-v1-..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-300 mb-1">Anthropic Direct API Key</label>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Anthropic Direct API Key (Optional)</label>
           <input type="password" id="settingAnthropicKey" placeholder="sk-ant-api03-..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
         </div>
 

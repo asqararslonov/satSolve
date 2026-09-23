@@ -37,52 +37,69 @@ def test_encode_image(dummy_image):
 @pytest.mark.asyncio
 async def test_mock_vision_api(dummy_image):
     # When no API key is set, mock response should be returned
-    config.openrouter_api_key = ""
-    config.anthropic_api_key = ""
-    res = await call_vision_api(dummy_image, 1)
-    assert "### Question 1" in res
-    assert "Visual Description" in res
-    assert "Options" in res
+    old_key = config.omni_route_api_key
+    try:
+        config.omni_route_api_key = ""
+        config.openrouter_api_key = ""
+        config.anthropic_api_key = ""
+        res = await call_vision_api(dummy_image, 1)
+        assert "### Question 1" in res
+        assert "Visual Description" in res
+        assert "Options" in res
+    finally:
+        config.omni_route_api_key = old_key
 
 
 @pytest.mark.asyncio
 async def test_mock_solver_api():
-    config.openrouter_api_key = ""
-    config.anthropic_api_key = ""
-    sample_q = "### Question 1\nWhat is slope?"
-    res = await call_solver_api(sample_q, 1)
-    assert "Solution for Question 1" in res
-    assert "Final Answer:" in res
+    old_key = config.omni_route_api_key
+    try:
+        config.omni_route_api_key = ""
+        config.openrouter_api_key = ""
+        config.anthropic_api_key = ""
+        sample_q = "### Question 1\nWhat is slope?"
+        res = await call_solver_api(sample_q, 1)
+        assert "Solution for Question 1" in res
+        assert "Final Answer:" in res
+    finally:
+        config.omni_route_api_key = old_key
 
 
 @pytest.mark.asyncio
 async def test_batch_processing_pipeline(dummy_image):
-    job_id = "test_batch_1"
-    item = QuestionItem(
-        index=1,
-        filename="test_q1.png",
-        image_path=str(dummy_image),
-        status="pending",
-    )
-    job = JobStatus(job_id=job_id, total_images=1, items=[item])
-    JOBS[job_id] = job
+    old_key = config.omni_route_api_key
+    try:
+        config.omni_route_api_key = ""
+        config.openrouter_api_key = ""
+        config.anthropic_api_key = ""
+        job_id = "test_batch_1"
+        item = QuestionItem(
+            index=1,
+            filename="test_q1.png",
+            image_path=str(dummy_image),
+            status="pending",
+        )
+        job = JobStatus(job_id=job_id, total_images=1, items=[item])
+        JOBS[job_id] = job
 
-    await process_batch_job(job_id)
+        await process_batch_job(job_id)
 
-    assert job.status == "completed"
-    assert job.vision_completed == 1
-    assert job.solver_completed == 1
-    assert item.status == "completed"
-    assert "Visual Description" in item.markdown_question
-    assert "Final Answer:" in item.solution
+        assert job.status == "completed"
+        assert job.vision_completed == 1
+        assert job.solver_completed == 1
+        assert item.status == "completed"
+        assert "Visual Description" in item.markdown_question
+        assert "Final Answer:" in item.solution
 
-    # Check files created
-    q_file = Path(job.questions_md_path)
-    s_file = Path(job.solutions_md_path)
-    assert q_file.exists()
-    assert s_file.exists()
-    assert "# Exam Questions" in q_file.read_text(encoding="utf-8")
-    assert "# Exam Solutions" in s_file.read_text(encoding="utf-8")
+        # Check files created
+        q_file = Path(job.questions_md_path)
+        s_file = Path(job.solutions_md_path)
+        assert q_file.exists()
+        assert s_file.exists()
+        assert "# Exam Questions" in q_file.read_text(encoding="utf-8")
+        assert "# Exam Solutions" in s_file.read_text(encoding="utf-8")
+    finally:
+        config.omni_route_api_key = old_key
 
 
 def test_fastapi_endpoints():

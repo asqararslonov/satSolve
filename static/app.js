@@ -158,13 +158,18 @@ async function loadConfig() {
     const res = await fetch("/api/config");
     const data = await res.json();
 
-    document.getElementById("settingProvider").value = data.ai_provider || "openrouter";
-    document.getElementById("settingVisionModel").value = data.vision_model || "anthropic/claude-3.7-sonnet";
-    document.getElementById("settingSolverModel").value = data.solver_model || "anthropic/claude-3-opus";
+    document.getElementById("settingProvider").value = data.ai_provider || "omniroute";
+    if (data.omni_route_url) {
+      document.getElementById("settingOmniRouteUrl").value = data.omni_route_url;
+    }
+    document.getElementById("settingVisionModel").value = data.vision_model || "antigravity/claude-sonnet-4-6";
+    document.getElementById("settingSolverModel").value = data.solver_model || "antigravity/claude-opus-4-6-thinking";
     document.getElementById("settingConcurrency").value = data.max_concurrency || 4;
 
     const providerText = document.getElementById("providerText");
-    const provName = data.ai_provider === "anthropic" ? "Anthropic Cloud" : "OpenRouter (Omni-route)";
+    let provName = "Omni Route (Active)";
+    if (data.ai_provider === "anthropic") provName = "Anthropic Direct";
+    else if (data.ai_provider === "openrouter") provName = "OpenRouter";
     providerText.textContent = `Provider: ${provName}`;
   } catch (err) {
     console.error("Failed to load config:", err);
@@ -185,10 +190,14 @@ async function loadPrompts() {
 async function saveConfig() {
   const payload = {
     ai_provider: document.getElementById("settingProvider").value,
-    vision_model: document.getElementById("settingVisionModel").value,
-    solver_model: document.getElementById("settingSolverModel").value,
+    omni_route_url: document.getElementById("settingOmniRouteUrl").value.trim(),
+    vision_model: document.getElementById("settingVisionModel").value.trim(),
+    solver_model: document.getElementById("settingSolverModel").value.trim(),
     max_concurrency: parseInt(document.getElementById("settingConcurrency").value, 10),
   };
+
+  const omniKey = document.getElementById("settingOmniRouteKey").value.trim();
+  if (omniKey) payload.omni_route_api_key = omniKey;
 
   const orKey = document.getElementById("settingOpenrouterKey").value.trim();
   if (orKey) payload.openrouter_api_key = orKey;

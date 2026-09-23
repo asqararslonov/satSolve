@@ -17,7 +17,19 @@ load_dotenv(BASE_DIR / ".env")
 
 class AppConfig(BaseModel):
     ai_provider: str = Field(
-        default_factory=lambda: os.getenv("AI_PROVIDER", "openrouter").lower()
+        default_factory=lambda: os.getenv("AI_PROVIDER", "omniroute").lower()
+    )
+    omni_route_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "OMNI_ROUTE_URL",
+            "https://34.59.24.49.nip.io:20130/v1/chat/completions",
+        )
+    )
+    omni_route_api_key: str = Field(
+        default_factory=lambda: os.getenv(
+            "OMNI_ROUTE_API_KEY",
+            "sk-e1c9718b5e58a095-53cb5c-fab29a1c",
+        )
     )
     openrouter_api_key: str = Field(
         default_factory=lambda: os.getenv("OPENROUTER_API_KEY", "")
@@ -27,12 +39,12 @@ class AppConfig(BaseModel):
     )
     vision_model: str = Field(
         default_factory=lambda: os.getenv(
-            "VISION_MODEL", "anthropic/claude-3.7-sonnet"
+            "VISION_MODEL", "antigravity/claude-sonnet-4-6"
         )
     )
     solver_model: str = Field(
         default_factory=lambda: os.getenv(
-            "SOLVER_MODEL", "anthropic/claude-3-opus"
+            "SOLVER_MODEL", "antigravity/claude-opus-4-6-thinking"
         )
     )
     max_concurrency: int = Field(
@@ -43,7 +55,9 @@ class AppConfig(BaseModel):
 
     def get_api_key(self, provider: str | None = None) -> str:
         prov = (provider or self.ai_provider).lower()
-        if prov == "anthropic":
+        if prov == "omniroute":
+            return self.omni_route_api_key
+        elif prov == "anthropic":
             return self.anthropic_api_key
         return self.openrouter_api_key
 

@@ -43,6 +43,8 @@ app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 class ConfigUpdateRequest(BaseModel):
     ai_provider: Optional[str] = None
+    omni_route_url: Optional[str] = None
+    omni_route_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     vision_model: Optional[str] = None
@@ -62,9 +64,11 @@ async def root():
 async def get_config():
     return {
         "ai_provider": config.ai_provider,
+        "omni_route_url": config.omni_route_url,
         "vision_model": config.vision_model,
         "solver_model": config.solver_model,
         "max_concurrency": config.max_concurrency,
+        "has_omni_route_key": bool(config.omni_route_api_key.strip()),
         "has_openrouter_key": bool(config.openrouter_api_key.strip()),
         "has_anthropic_key": bool(config.anthropic_api_key.strip()),
     }
@@ -104,7 +108,6 @@ async def upload_batch(
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    # Sort files naturally by filename if possible
     sorted_files = sorted(files, key=lambda f: f.filename or "")
 
     question_items: List[QuestionItem] = []
@@ -115,8 +118,6 @@ async def upload_batch(
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(uploaded_file.file, buffer)
 
-        # Web accessible path
-        rel_path = f"/uploads/{job_id}/{filename}"
         question_items.append(
             QuestionItem(
                 index=idx,
@@ -156,7 +157,6 @@ async def get_job_status(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Format image paths for frontend viewing
     items_for_frontend = []
     for item in job.items:
         items_for_frontend.append(

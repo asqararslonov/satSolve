@@ -57,13 +57,13 @@ async def call_vision_api(
     question_num: int,
     custom_prompt: Optional[str] = None,
 ) -> str:
-    """Call multimodal model via OpenRouter or Anthropic to transcribe screenshot to Markdown."""
+    """Call multimodal model via Omni Route, OpenRouter, or Anthropic to transcribe screenshot to Markdown."""
     provider = config.ai_provider.lower()
     api_key = config.get_api_key(provider)
     system_prompt = custom_prompt or DEFAULT_VISION_SYSTEM_PROMPT
     model = config.vision_model
 
-    # If no API key is provided, return a structured mock response for testing/demo
+    # If no API key is provided, return structured mock response
     if not api_key:
         await asyncio.sleep(0.8)
         return (
@@ -86,7 +86,7 @@ async def call_vision_api(
 
     b64_data, mime_type = encode_image(image_path)
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=180.0, verify=False) as client:
         if provider == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
             headers = {
@@ -124,13 +124,15 @@ async def call_vision_api(
             return data["content"][0]["text"]
 
         else:
-            # OpenRouter / Omni-route
-            url = "https://openrouter.ai/api/v1/chat/completions"
+            # Omni Route or OpenRouter
+            if provider == "omniroute":
+                url = config.omni_route_url
+            else:
+                url = "https://openrouter.ai/api/v1/chat/completions"
+
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/satSolver",
-                "X-Title": "SAT Solver Platform",
             }
             payload = {
                 "model": model,
@@ -189,7 +191,7 @@ async def call_solver_api(
             f"**Final Answer: (B) $\\frac{{1}}{{2}}$**\n"
         )
 
-    async with httpx.AsyncClient(timeout=180.0) as client:
+    async with httpx.AsyncClient(timeout=180.0, verify=False) as client:
         if provider == "anthropic":
             url = "https://api.anthropic.com/v1/messages"
             headers = {
@@ -214,13 +216,15 @@ async def call_solver_api(
             return data["content"][0]["text"]
 
         else:
-            # OpenRouter
-            url = "https://openrouter.ai/api/v1/chat/completions"
+            # Omni Route or OpenRouter
+            if provider == "omniroute":
+                url = config.omni_route_url
+            else:
+                url = "https://openrouter.ai/api/v1/chat/completions"
+
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://github.com/satSolver",
-                "X-Title": "SAT Solver Platform",
             }
             payload = {
                 "model": model,
@@ -267,7 +271,7 @@ async def process_batch_job(
                 item.status = "transcribed"
                 job.vision_completed += 1
             except Exception as e:
-                item.error = f"Vision transcription error: {str(e)}"
+                item.error = f"Vision error: {str(e)}"
                 item.status = "error"
 
     await asyncio.gather(*(transcribe_item(item) for item in job.items))
