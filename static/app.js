@@ -163,7 +163,7 @@ async function loadConfig() {
       document.getElementById("settingOmniRouteUrl").value = data.omni_route_url;
     }
     document.getElementById("settingVisionModel").value = data.vision_model || "antigravity/claude-sonnet-4-6";
-    document.getElementById("settingSolverModel").value = data.solver_model || "antigravity/claude-opus-4-6-thinking";
+    document.getElementById("settingSolverModel").value = data.solver_model || "antigravity/claude-opus-4-6-thinking-high";
     document.getElementById("settingConcurrency").value = data.max_concurrency || 4;
 
     const providerText = document.getElementById("providerText");

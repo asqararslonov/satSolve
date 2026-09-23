@@ -49,7 +49,7 @@ class AppConfig(BaseModel):
     )
     solver_model: str = Field(
         default_factory=lambda: os.getenv(
-            "SOLVER_MODEL", "antigravity/claude-opus-4-6-thinking"
+            "SOLVER_MODEL", "antigravity/claude-opus-4-6-thinking-high"
         )
     )
     max_concurrency: int = Field(
