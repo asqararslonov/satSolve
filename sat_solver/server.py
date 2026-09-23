@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,11 +20,12 @@ from sat_solver.engine import (
     JobStatus,
     QuestionItem,
     process_batch_job,
+    call_vision_api,
+    call_solver_api,
 )
 
 app = FastAPI(title="SAT & Exam AI Solver Platform", version="1.0.0")
 
-# CORS middleware for local development flexibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,12 +34,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static and uploaded files
 STATIC_DIR = BASE_DIR / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
+if not STATIC_DIR.exists():
+    STATIC_DIR = BASE_DIR / "public"
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+if UPLOAD_DIR.exists():
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -52,15 +56,17 @@ class ConfigUpdateRequest(BaseModel):
     max_concurrency: Optional[int] = None
 
 
-@app.get("/")
-async def root():
-    index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(str(index_path))
-    return JSONResponse({"message": "SAT Solver Platform API is active"})
+class ProcessItemRequest(BaseModel):
+    job_id: str
+    item_index: int
+    vision_prompt: Optional[str] = None
+    solver_prompt: Optional[str] = None
 
 
-@app.get("/api/config")
+api = APIRouter()
+
+
+@api.get("/config")
 async def get_config():
     return {
         "ai_provider": config.ai_provider,
@@ -74,7 +80,7 @@ async def get_config():
     }
 
 
-@app.post("/api/config")
+@api.post("/config")
 async def update_config(req: ConfigUpdateRequest):
     update_data = req.model_dump(exclude_unset=True)
     config.update(**update_data)
@@ -85,7 +91,7 @@ async def update_config(req: ConfigUpdateRequest):
     }
 
 
-@app.get("/api/prompts")
+@api.get("/prompts")
 async def get_prompts():
     return {
         "vision_system_prompt": DEFAULT_VISION_SYSTEM_PROMPT,
@@ -93,14 +99,14 @@ async def get_prompts():
     }
 
 
-@app.post("/api/upload")
+@api.post("/upload")
 async def upload_batch(
     files: List[UploadFile] = File(...),
     vision_prompt: Optional[str] = Form(None),
     solver_prompt: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
-    """Receives 1 to 50 screenshots, sets up the job, and starts processing."""
+    """Receives screenshots, sets up the job, and starts processing."""
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
 
@@ -136,7 +142,7 @@ async def upload_batch(
     )
     JOBS[job_id] = job_status
 
-    # Launch background async batch pipeline
+    # Background async processing
     background_tasks.add_task(
         process_batch_job,
         job_id=job_id,
@@ -151,14 +157,7 @@ async def upload_batch(
     }
 
 
-class ProcessItemRequest(BaseModel):
-    job_id: str
-    item_index: int
-    vision_prompt: Optional[str] = None
-    solver_prompt: Optional[str] = None
-
-
-@app.post("/api/process-item")
+@api.post("/process-item")
 async def process_single_item(req: ProcessItemRequest):
     """Processes a single item on demand (vision + solver), ideal for serverless environments."""
     job = JOBS.get(req.job_id)
@@ -196,7 +195,6 @@ async def process_single_item(req: ProcessItemRequest):
         if all(it.status == "completed" for it in job.items):
             job.status = "completed"
             job.current_message = f"Completed all {job.total_images} questions!"
-            # Save files
             job_out_dir = OUTPUT_DIR / req.job_id
             job_out_dir.mkdir(parents=True, exist_ok=True)
             q_file = job_out_dir / "questions.md"
@@ -235,7 +233,7 @@ async def process_single_item(req: ProcessItemRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/jobs/{job_id}")
+@api.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     job = JOBS.get(job_id)
     if not job:
@@ -268,7 +266,7 @@ async def get_job_status(job_id: str):
     }
 
 
-@app.get("/api/export/{job_id}/{file_type}")
+@api.get("/export/{job_id}/{file_type}")
 async def export_file(job_id: str, file_type: str):
     job = JOBS.get(job_id)
     if not job:
@@ -295,6 +293,19 @@ async def export_file(job_id: str, file_type: str):
         media_type="text/markdown",
         filename=filename,
     )
+
+
+# Mount router both at /api and at root for seamless Vercel / Local compatibility
+app.include_router(api, prefix="/api")
+app.include_router(api)
+
+
+@app.get("/")
+async def root():
+    index_path = STATIC_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
+    return JSONResponse({"message": "SAT Solver Platform API is active"})
 
 
 if __name__ == "__main__":

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SAT & Exam AI Platform | Screenshot to Markdown & Frontier Solver</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- KaTeX for LaTeX rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+  
+  <!-- Marked.js for Markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.1/marked.min.js"></script>
+
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+  <!-- Navbar -->
+  <header class="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-violet-500 to-emerald-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <div class="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+          </div>
+        </div>
+        <div>
+          <h1 class="font-bold text-lg text-white flex items-center gap-2">
+            SAT & Exam AI Platform
+            <span class="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30 font-medium">Frontier Cloud</span>
+          </h1>
+          <p class="text-xs text-slate-400">Screenshots &rarr; Visual Description & LaTeX Markdown &rarr; Cloud AI Solver</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <div id="providerBadge" class="hidden sm:flex items-center gap-1.5 text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-lg border border-slate-700">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span id="providerText">Provider: Omni Route (Active)</span>
+        </div>
+        <button id="openSettingsBtn" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs px-3.5 py-1.5 rounded-lg transition">
+          <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+          </svg>
+          Settings
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex-1 w-full space-y-6">
+
+    <!-- Upload Section -->
+    <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Upload Question Screenshots</h2>
+          <p class="text-sm text-slate-400">Select or drop 20–30 screenshots at once (.png, .jpg, .webp). The AI will transcribe text, describe visual figures, and formulate clean Markdown questions.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="clearFilesBtn" class="hidden text-xs text-rose-400 hover:text-rose-300 font-medium">Clear All</button>
+          <button id="startPipelineBtn" disabled class="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            Run Automated Pipeline
+          </button>
+        </div>
+      </div>
+
+      <!-- Dropzone -->
+      <div id="dropZone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500 bg-slate-950/50 hover:bg-slate-900/40 rounded-xl p-8 text-center cursor-pointer transition-all duration-200">
+        <input type="file" id="fileInput" multiple accept="image/png,image/jpeg,image/webp" class="hidden" />
+        <div class="flex flex-col items-center justify-center space-y-3">
+          <div class="w-12 h-12 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-slate-200">
+              <span class="text-indigo-400 underline">Click to upload</span> or drag and drop screenshots here
+            </p>
+            <p class="text-xs text-slate-500 mt-1">Accepts PNG, JPG, WEBP. Supports 1 to 50 files simultaneously.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected files preview tray -->
+      <div id="previewTray" class="hidden mt-4 pt-4 border-t border-slate-800">
+        <div class="flex items-center justify-between mb-2">
+          <span id="fileCountBadge" class="text-xs text-slate-400 font-medium">0 files queued</span>
+          <span class="text-xs text-slate-500">Sorted automatically by filename</span>
+        </div>
+        <div id="fileGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 max-h-56 overflow-y-auto p-1">
+          <!-- Thumbnails injected via JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Progress Status Bar (Shown during pipeline) -->
+    <section id="progressSection" class="hidden bg-slate-900/90 border border-indigo-500/30 rounded-2xl p-6 shadow-xl relative">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center animate-spin">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 id="progressTitle" class="text-sm font-semibold text-white">Processing Batch...</h3>
+            <p id="progressMessage" class="text-xs text-slate-400">Initializing...</p>
+          </div>
+        </div>
+        <div class="text-right">
+          <span id="progressPercent" class="text-lg font-bold text-indigo-400">0%</span>
+        </div>
+      </div>
+
+      <!-- Stage 1 & Stage 2 bars -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300 font-medium">Stage 1: Vision Transcription & Visual Description</span>
+            <span id="visionProgressCount" class="text-indigo-400">0 / 0</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="visionProgressBar" class="bg-indigo-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="text-slate-300 font-medium">Stage 2: Cloud Frontier AI Solver</span>
+            <span id="solverProgressCount" class="text-emerald-400">0 / 0</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="solverProgressBar" class="bg-emerald-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section id="resultsSection" class="hidden space-y-4">
+      <!-- Toolbar -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 p-4 rounded-xl">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-white">Generated Exam Results</span>
+          <span id="resultsCountBadge" class="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full">0 Questions</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="downloadQuestionsBtn" class="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 transition">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+            </svg>
+            Download questions.md
+          </button>
+          <button id="downloadSolutionsBtn" class="flex items-center gap-1.5 text-xs bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 px-3 py-1.5 rounded-lg border border-emerald-800/80 transition">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+            </svg>
+            Download solutions.md
+          </button>
+        </div>
+      </div>
+
+      <!-- Question Cards -->
+      <div id="questionsContainer" class="space-y-6">
+        <!-- Rendered question cards injected here -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-6 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-white text-base">Platform & Model Settings</h3>
+        <button id="closeSettingsBtn" class="text-slate-400 hover:text-white">&times;</button>
+      </div>
+
+      <div class="space-y-4 text-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">AI Provider</label>
+          <select id="settingProvider" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200">
+            <option value="omniroute">Omni Route (Preconfigured / Cloud Reasoning)</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="anthropic">Anthropic Direct Cloud</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Omni Route Endpoint URL</label>
+          <input type="text" id="settingOmniRouteUrl" value="https://34.59.24.49.nip.io:20130/v1/chat/completions" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono text-xs" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Omni Route API Key</label>
+          <input type="password" id="settingOmniRouteKey" value="sk-e1c9718b5e58a095-53cb5c-fab29a1c" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">OpenRouter API Key (Optional)</label>
+          <input type="password" id="settingOpenrouterKey" placeholder="sk-or-v1-..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Anthropic Direct API Key (Optional)</label>
+          <input type="password" id="settingAnthropicKey" placeholder="sk-ant-api03-..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Vision Model</label>
+            <input type="text" id="settingVisionModel" value="anthropic/claude-3.7-sonnet" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200" />
+            <p class="text-[10px] text-slate-500 mt-1">Multimodal vision for visual transcription</p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">Frontier Solver Model</label>
+            <input type="text" id="settingSolverModel" value="anthropic/claude-3-opus" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200" />
+            <p class="text-[10px] text-slate-500 mt-1">High frontier reasoning model</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Max Concurrency Workers</label>
+          <input type="number" id="settingConcurrency" min="1" max="10" value="4" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200" />
+          <p class="text-[10px] text-slate-500 mt-1">Number of parallel screenshots processed simultaneously.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Vision System Prompt</label>
+          <textarea id="settingVisionPrompt" rows="4" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 font-mono"></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Solver System Prompt</label>
+          <textarea id="settingSolverPrompt" rows="4" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-slate-200 font-mono"></textarea>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-3 border-t border-slate-800">
+        <button id="cancelSettingsBtn" class="px-4 py-2 text-xs text-slate-300 hover:text-white">Cancel</button>
+        <button id="saveSettingsBtn" class="px-5 py-2 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="border-t border-slate-900 py-4 text-center text-xs text-slate-600 mt-auto">
+    SAT & Exam AI Pipeline &bull; Automated Vision Transcription & Frontier Cloud AI
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
