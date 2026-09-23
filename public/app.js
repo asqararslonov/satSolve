@@ -267,6 +267,46 @@ function fileToBase64(file) {
   });
 }
 
+// Downscale images client-side for Agent 0 grouping to keep payload well under Vercel's 4.5MB limit
+function createDownscaledThumbnail(file, maxDim = 800, quality = 0.75) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        const thumbUrl = canvas.toDataURL("image/jpeg", quality);
+        URL.revokeObjectURL(url);
+        resolve(thumbUrl.split(",")[1]);
+      } catch (e) {
+        console.warn("Canvas thumbnail failed, falling back to full b64:", e);
+        URL.revokeObjectURL(url);
+        fileToBase64(file).then(resolve);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      fileToBase64(file).then(resolve);
+    };
+    img.src = url;
+  });
+}
+
 // 3-Stage Pipeline: Agent 0 (Grouping) -> Agent 1 (Multi-Image Vision) -> Agent 2 (Opus High Solver)
 async function startClientPipeline() {
   if (selectedFiles.length === 0) return;
@@ -284,7 +324,7 @@ async function startClientPipeline() {
   progressSec.classList.remove("hidden");
   resultsSec.classList.remove("hidden");
 
-  // Encode all images
+  // Encode all images (full resolution for vision/solving, lightweight thumbnail for grouping)
   document.getElementById("progressTitle").textContent = "Preparing Screenshots...";
   document.getElementById("progressMessage").textContent = `Encoding ${selectedFiles.length} screenshots for analysis...`;
 
@@ -292,10 +332,12 @@ async function startClientPipeline() {
   for (let i = 0; i < selectedFiles.length; i++) {
     const file = selectedFiles[i];
     const b64 = await fileToBase64(file);
+    const thumb_b64 = await createDownscaledThumbnail(file, 800, 0.75);
     encodedImages.push({
       index: i + 1,
       filename: file.name,
       b64: b64,
+      thumb_b64: thumb_b64,
       mime_type: file.type || "image/png",
       url: URL.createObjectURL(file),
       file: file,
@@ -325,8 +367,8 @@ async function startClientPipeline() {
         images: encodedImages.map((im) => ({
           index: im.index,
           filename: im.filename,
-          b64: im.b64,
-          mime_type: im.mime_type,
+          b64: im.thumb_b64,
+          mime_type: "image/jpeg",
         })),
         grouping_prompt: groupingPrompt,
       }),
@@ -335,9 +377,13 @@ async function startClientPipeline() {
     if (groupRes.ok) {
       const gData = await groupRes.json();
       groupingResult = gData.grouping || [];
+      console.log("Agent 0 Grouping Success:", groupingResult);
+    } else {
+      const errText = await groupRes.text();
+      console.error("Agent 0 Grouping API failed with status", groupRes.status, errText);
     }
   } catch (err) {
-    console.warn("Grouping agent error, falling back to 1-to-1:", err);
+    console.error("Grouping agent error, falling back to 1-to-1:", err);
   }
 
   // Fallback if empty
@@ -346,7 +392,7 @@ async function startClientPipeline() {
       question_number: im.index,
       title: `Question ${im.index}`,
       image_indices: [im.index],
-      reasoning: "Single screenshot unit",
+      reasoning: "Single screenshot unit (fallback)",
     }));
   }
 

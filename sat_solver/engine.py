@@ -152,15 +152,22 @@ async def call_grouping_agent(
             else:
                 raw_text = res_json["choices"][0]["message"]["content"].strip()
 
-            # Clean json fences
-            raw_text = re.sub(r"^```(?:json)?", "", raw_text, flags=re.MULTILINE)
-            raw_text = re.sub(r"```$", "", raw_text, flags=re.MULTILINE).strip()
+            # Robust JSON extraction: look for JSON array anywhere in raw_text
+            json_match = re.search(r"\[\s*\{.*\}\s*\]", raw_text, re.DOTALL)
+            if json_match:
+                candidate = json_match.group(0)
+            else:
+                candidate = re.sub(r"^```(?:json)?", "", raw_text, flags=re.MULTILINE)
+                candidate = re.sub(r"```$", "", candidate, flags=re.MULTILINE).strip()
 
-            parsed = json.loads(raw_text)
+            parsed = json.loads(candidate)
             if isinstance(parsed, list) and len(parsed) > 0:
                 return parsed
     except Exception as e:
         print(f"Grouping agent error, falling back: {e}")
+        # Log to stderr for serverless inspection
+        import traceback
+        traceback.print_exc()
 
     return fallback
 
