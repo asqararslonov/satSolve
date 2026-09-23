@@ -80,11 +80,28 @@ function initUI() {
 
   downloadSolutionsBtn.addEventListener("click", () => {
     if (!activeJob) return;
-    let md = `# Exam Solutions & Explanations\n\nModel: antigravity/claude-opus-4-6-thinking-high\n\n---\n\n`;
+
+    // Build Simple Answer Key: 1.A, 2.B, 3.C, ...
+    const keyParts = [];
     activeJob.items.forEach((it) => {
-      md += `## Question ${it.index}\n\n### Problem Stem\n${it.markdown_question}\n\n### Frontier AI Solution\n${it.solution || "(Pending)"}\n\n---\n\n`;
+      let ans = "?";
+      if (it.solution) {
+        const match = it.solution.match(/Final Answer:?\s*\(?([A-D0-9.\-\/]+)\)?/i);
+        if (match) ans = match[1].toUpperCase();
+      }
+      keyParts.push(`${it.index}.${ans}`);
     });
-    downloadFile(md, "solutions.md");
+    const simpleKey = keyParts.join(", ");
+
+    let md = `# SAT Practice Test Module - Answers & Explanations\n\n`;
+    md += `## Simple Answer Key\n${simpleKey}\n\n---\n\n`;
+    md += `## Detailed Explanations\n\n`;
+    activeJob.items.forEach((it) => {
+      md += `### Question ${it.index}\n\n`;
+      md += `#### Problem Stem & Visuals\n${it.markdown_question || "(Pending)"}\n\n`;
+      md += `#### Explanation & Analysis\n${it.solution || "(Pending)"}\n\n---\n\n`;
+    });
+    downloadFile(md, "answers.md");
   });
 }
 
