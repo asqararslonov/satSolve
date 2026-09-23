@@ -5,8 +5,13 @@ from dotenv import load_dotenv
 
 # Base paths
 BASE_DIR = Path(__file__).resolve().parent.parent
-UPLOAD_DIR = BASE_DIR / "data" / "uploads"
-OUTPUT_DIR = BASE_DIR / "data" / "outputs"
+
+if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+    UPLOAD_DIR = Path("/tmp/data/uploads")
+    OUTPUT_DIR = Path("/tmp/data/outputs")
+else:
+    UPLOAD_DIR = BASE_DIR / "data" / "uploads"
+    OUTPUT_DIR = BASE_DIR / "data" / "outputs"
 
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

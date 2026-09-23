@@ -151,6 +151,90 @@ async def upload_batch(
     }
 
 
+class ProcessItemRequest(BaseModel):
+    job_id: str
+    item_index: int
+    vision_prompt: Optional[str] = None
+    solver_prompt: Optional[str] = None
+
+
+@app.post("/api/process-item")
+async def process_single_item(req: ProcessItemRequest):
+    """Processes a single item on demand (vision + solver), ideal for serverless environments."""
+    job = JOBS.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    target_item = next((it for it in job.items if it.index == req.item_index), None)
+    if not target_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    try:
+        # Stage 1: Vision
+        if target_item.status in ["pending", "error"]:
+            target_item.status = "transcribing"
+            md_q = await call_vision_api(
+                target_item.image_path, target_item.index, req.vision_prompt
+            )
+            target_item.markdown_question = md_q
+            target_item.status = "transcribed"
+            job.vision_completed = sum(
+                1 for it in job.items if it.markdown_question
+            )
+
+        # Stage 2: Solver
+        if target_item.status == "transcribed":
+            target_item.status = "solving"
+            sol = await call_solver_api(
+                target_item.markdown_question, target_item.index, req.solver_prompt
+            )
+            target_item.solution = sol
+            target_item.status = "completed"
+            job.solver_completed = sum(1 for it in job.items if it.solution)
+
+        # Check if all completed
+        if all(it.status == "completed" for it in job.items):
+            job.status = "completed"
+            job.current_message = f"Completed all {job.total_images} questions!"
+            # Save files
+            job_out_dir = OUTPUT_DIR / req.job_id
+            job_out_dir.mkdir(parents=True, exist_ok=True)
+            q_file = job_out_dir / "questions.md"
+            s_file = job_out_dir / "solutions.md"
+
+            with open(q_file, "w", encoding="utf-8") as f:
+                f.write(f"# Exam Questions - Batch {req.job_id}\n\n---\n\n")
+                for it in sorted(job.items, key=lambda x: x.index):
+                    f.write(f"{it.markdown_question}\n\n---\n\n")
+
+            with open(s_file, "w", encoding="utf-8") as f:
+                f.write(f"# Exam Solutions - Batch {req.job_id}\n\n---\n\n")
+                for it in sorted(job.items, key=lambda x: x.index):
+                    f.write(f"## Question {it.index}\n\n{it.solution}\n\n---\n\n")
+
+            job.questions_md_path = str(q_file)
+            job.solutions_md_path = str(s_file)
+
+        return {
+            "status": "success",
+            "item": {
+                "index": target_item.index,
+                "filename": target_item.filename,
+                "status": target_item.status,
+                "markdown_question": target_item.markdown_question,
+                "solution": target_item.solution,
+            },
+            "job_status": job.status,
+            "vision_completed": job.vision_completed,
+            "solver_completed": job.solver_completed,
+        }
+
+    except Exception as e:
+        target_item.status = "error"
+        target_item.error = str(e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job_status(job_id: str):
     job = JOBS.get(job_id)
